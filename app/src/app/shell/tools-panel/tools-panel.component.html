@@ -2,6 +2,7 @@
   <div class="right-buttons" id="right-buttons">
     <button
       class="tool-btn"
+      id="help-button"
       [class.active]="toolService.active() === 'help'"
       (click)="toolService.toggle('help')"
       type="button"
@@ -40,9 +41,31 @@
 
   @if (toolService.active() !== 'none') {
     <div class="right-panel" id="right-panel">
-      <div class="tool-placeholder">
-        Tool: <strong>{{ toolService.active() }}</strong> (not implemented)
-      </div>
+      @switch (toolService.active()) {
+        @case ('describe') {
+          <app-describe-panel />
+        }
+        @case ('edit') {
+          <app-edit-panel />
+        }
+        @case ('sparql') {
+          <app-sparql-panel />
+        }
+        @case ('settings') {
+          <app-settings-panel />
+        }
+        @case ('help') {
+          <app-help-panel />
+        }
+        @case ('log') {
+          <app-log-panel />
+        }
+        @default {
+          <div class="tool-placeholder">
+            Tool: <strong>{{ toolService.active() }}</strong>
+          </div>
+        }
+      }
     </div>
   }
 </div>
