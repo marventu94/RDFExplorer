@@ -1,12 +1,24 @@
 import cytoscape from 'cytoscape';
 
-export const CHILD_HEIGHT = 20;
-export const CHILD_PADDING = 10;
-export const NODE_BASE_HEIGHT = 30;
+export const CHILD_HEIGHT = 28;
+export const CHILD_PADDING = 8;
 export const NODE_WIDTH = 220;
 export const PROP_WIDTH = 200;
 
+// Height of a node that has no properties — just enough room for the title.
+export const NODE_EMPTY_HEIGHT = 44;
+
+// Vertical space reserved above the children for the title when the node
+// has properties. Used both in styles (padding-top) and in the child-Y math.
+export const NODE_TITLE_HEIGHT = 36;
+
+// Back-compat aliases — kept so the layout math in canvas-graph.component.ts
+// keeps building without churn.
+export const NODE_BASE_HEIGHT = NODE_EMPTY_HEIGHT;
+export const NODE_HEIGHT = NODE_EMPTY_HEIGHT;
+
 export const CYTOSCAPE_STYLES: cytoscape.StylesheetCSS[] = [
+  // Shared visual base for every "node"-kind element (leaf or compound).
   {
     selector: 'node[kind = "node"]',
     css: {
@@ -16,17 +28,51 @@ export const CYTOSCAPE_STYLES: cytoscape.StylesheetCSS[] = [
       'border-width': 2,
       'border-color': 'data(color)',
       'label': 'data(label)',
-      'text-valign': 'center',
       'text-halign': 'center',
-      'font-size': '14px',
+      'font-size': '13px',
       'font-weight': 'bold',
       'color': '#333',
-      'width': NODE_WIDTH,
-      'height': 'data(compoundHeight)',
-      'padding': '5px',
       'text-wrap': 'ellipsis',
       'text-max-width': `${NODE_WIDTH - 20}px`,
-      'compound-sizing-wrt-labels': 'exclude',
+      'compound-sizing-wrt-labels': 'include',
+    } as cytoscape.Css.Node,
+  },
+  // Empty node (no properties): compact box with the title centered inside.
+  {
+    selector: 'node[kind = "node"]:childless',
+    css: {
+      'width': NODE_WIDTH,
+      'height': NODE_EMPTY_HEIGHT,
+      'text-valign': 'center',
+      'padding': '0px',
+    } as cytoscape.Css.Node,
+  },
+  // Compound node (has at least one property): auto-sizes to fit its
+  // children. The title sits inside the top area reserved by the title-spacer
+  // child (cytoscape does not support directional padding, so we use a
+  // transparent spacer node instead of padding-top).
+  {
+    selector: 'node[kind = "node"]:parent',
+    css: {
+      'text-valign': 'top',
+      'text-margin-y': NODE_TITLE_HEIGHT / 2,
+      'padding': `${CHILD_PADDING}px`,
+      'min-width': `${NODE_WIDTH}px`,
+    } as cytoscape.Css.Node,
+  },
+  // Invisible spacer that reserves vertical space for the node title inside
+  // compound nodes. Cytoscape only supports uniform padding, so this child
+  // node pushes the compound's bounding box up to cover the title area.
+  {
+    selector: 'node[kind = "title-spacer"]',
+    css: {
+      'background-opacity': 0,
+      'border-width': 0,
+      'label': '',
+      'width': NODE_WIDTH - 2 * CHILD_PADDING,
+      'height': NODE_TITLE_HEIGHT,
+      'padding': '0px',
+      'events': 'no',
     } as cytoscape.Css.Node,
   },
   {
@@ -58,8 +104,9 @@ export const CYTOSCAPE_STYLES: cytoscape.StylesheetCSS[] = [
       'color': '#333',
       'width': PROP_WIDTH,
       'height': CHILD_HEIGHT,
+      'padding': '4px 8px',
       'text-wrap': 'ellipsis',
-      'text-max-width': `${PROP_WIDTH - 10}px`,
+      'text-max-width': `${PROP_WIDTH - 20}px`,
     } as cytoscape.Css.Node,
   },
   {
@@ -91,8 +138,9 @@ export const CYTOSCAPE_STYLES: cytoscape.StylesheetCSS[] = [
       'color': '#333',
       'width': PROP_WIDTH,
       'height': CHILD_HEIGHT,
+      'padding': '4px 8px',
       'text-wrap': 'ellipsis',
-      'text-max-width': `${PROP_WIDTH - 10}px`,
+      'text-max-width': `${PROP_WIDTH - 20}px`,
     } as cytoscape.Css.Node,
   },
   {

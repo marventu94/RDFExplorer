@@ -1,7 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DescribeService } from './describe.service';
-import type { DescribeObjectItem } from './describe.service';
+import type { DescribeObjectItem, DescribeBucketItem } from './describe.service';
 import { RequestService } from '../../core/request.service';
 
 @Component({
@@ -9,6 +9,7 @@ import { RequestService } from '../../core/request.service';
   templateUrl: './describe-panel.component.html',
   standalone: true,
   imports: [FormsModule],
+  styles: [`.c-img { width: 100%; height: auto; display: block; }`],
 })
 export class DescribePanelComponent {
   private readonly describeService = inject(DescribeService);
@@ -17,6 +18,7 @@ export class DescribePanelComponent {
   readonly selected = computed(() => this.describeService.current());
 
   show = { datatype: false, objects: true, external: false };
+  objectSearch = '';
 
   private _textExpanded = new Map<string, boolean>();
   private _dtExpanded = new Map<string, boolean>();
@@ -95,6 +97,15 @@ export class DescribePanelComponent {
 
   setPropFilter(propUri: string, value: string): void {
     this._propFilters.set(propUri, value);
+  }
+
+  getFilteredObjects(objects: DescribeBucketItem[]): DescribeBucketItem[] {
+    const filter = this.objectSearch.toLowerCase().trim();
+    if (!filter) return objects;
+    return objects.filter(prop =>
+      this.getLabel(prop.uri).toLowerCase().includes(filter) ||
+      prop.uri.toLowerCase().includes(filter)
+    );
   }
 
   getFilteredResults(results: Record<string, unknown[]>, propUri: string): unknown[] {

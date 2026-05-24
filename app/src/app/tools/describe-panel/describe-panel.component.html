@@ -76,7 +76,14 @@
       <span class="pull-right">[{{ sel.objects.length }}]</span>
     </h5>
     @if (show.objects) {
-      @for (prop of sel.objects; track prop.uri; let idx = $index) {
+      <input
+        class="form-control form-control-sm mb-2"
+        type="text"
+        placeholder="Search properties..."
+        [(ngModel)]="objectSearch"
+        (click)="$event.stopPropagation()"
+      />
+      @for (prop of getFilteredObjects(sel.objects); track prop.uri; let idx = $index) {
         <div class="prop-rect" [class.active]="isObjActive(prop.uri)">
           <div class="prop-head" (click)="toggleObj(prop.uri)">
             <span class="prop-title" [id]="'propId' + idx" draggable="true" (dragstart)="onDragProperty($event, prop.uri)" [title]="prop.uri">

@@ -297,28 +297,33 @@ export class PropertyGraph implements GraphContext, VariableContext, LabelProvid
 
         const sel = this.getSelected();
         if (sel instanceof Node) {
-          const selNode = sel;
-          let p = selNode.getPropByUri(payload.prop);
+          let p = sel.getPropByUri(payload.prop);
           if (!p) {
-            p = selNode.newProp();
+            p = sel.newProp();
             p.addUri(payload.prop);
             p.mkConst();
           }
           this.addEdge(p, d);
+          this.setSelected(sel);
+        } else {
+          this.setSelected(d);
         }
-        this.setSelected(d);
         break;
       }
       case 'prop': {
         const sel = this.getSelected();
         if (sel instanceof Node) {
-          const selNode = sel;
-          let p = selNode.getPropByUri(payload.prop);
+          let p = sel.getPropByUri(payload.prop);
           if (!p) {
-            p = selNode.newProp();
+            p = sel.newProp();
             p.addUri(payload.prop);
             p.mkConst();
           }
+          const target = this.addNode();
+          target.setPosition(at.x, at.y);
+          target.mkVariable();
+          this.addEdge(p, target);
+          this.setSelected(sel);
         }
         break;
       }

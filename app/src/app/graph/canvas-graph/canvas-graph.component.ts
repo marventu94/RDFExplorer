@@ -2,19 +2,21 @@ import {
   Component,
   ElementRef,
   inject,
+  Injector,
   OnInit,
   OnDestroy,
   HostListener,
   DestroyRef,
+  effect,
+  runInInjectionContext,
 } from '@angular/core';
-import { effect } from '@angular/core';
 import cytoscape from 'cytoscape';
 import edgehandles from 'cytoscape-edgehandles';
 import contextMenus from 'cytoscape-context-menus';
 
 import { PropertyGraphService } from '../property-graph.service';
 import { GraphInteractionService } from './interaction.service';
-import { CYTOSCAPE_STYLES, CHILD_HEIGHT, CHILD_PADDING, NODE_BASE_HEIGHT } from './canvas-graph.styles';
+import { CYTOSCAPE_STYLES, CHILD_HEIGHT, CHILD_PADDING, NODE_TITLE_HEIGHT } from './canvas-graph.styles';
 import { parseDropPayload } from './canvas-graph.drop';
 import { buildContextMenuConfig } from './canvas-graph.context-menus';
 import type { Node, Property, Edge, RDFResource } from '../domain';
@@ -49,6 +51,7 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
   private readonly graph = inject(PropertyGraphService);
   private readonly interaction = inject(GraphInteractionService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
 
   private cy!: cytoscape.Core;
   private ehApi: ReturnType<typeof cytoscape.prototype.edgehandles> | null = null;
@@ -90,10 +93,19 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
 
     for (const node of nodes) {
       const block = CHILD_HEIGHT + CHILD_PADDING;
-      const litCount = node.properties.filter(p => p.literal).length;
-      const compoundHeight = NODE_BASE_HEIGHT + node.properties.length * block + litCount * block;
-      const top = -compoundHeight / 2;
-      let childY = top + NODE_BASE_HEIGHT / 2 + block / 2;
+      const totalChildren = node.properties.reduce(
+        (n, p) => n + 1 + (p.literal ? 1 : 0),
+        0,
+      );
+      // Layout the children block so the compound (title + children + padding)
+      // is roughly centered on (node.x, node.y). When there are no children the
+      // initial childY is unused — the :childless style handles that case.
+      const childrenBlockHeight =
+        totalChildren > 0
+          ? totalChildren * CHILD_HEIGHT + (totalChildren - 1) * CHILD_PADDING
+          : 0;
+      const compoundHeight = NODE_TITLE_HEIGHT + childrenBlockHeight + CHILD_PADDING;
+      let childY = -compoundHeight / 2 + NODE_TITLE_HEIGHT + CHILD_HEIGHT / 2;
 
       elements.push({
         group: 'nodes',
@@ -102,12 +114,20 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
           kind: 'node',
           color: node.isVariable() ? '#2ca02c' : '#1f77b4',
           label: this.nodeLabel(node),
-          compoundHeight,
           domain: node,
         },
         position: { x: node.x, y: node.y },
         classes: 'cy-node',
       });
+
+      if (totalChildren > 0) {
+        elements.push({
+          group: 'nodes',
+          data: { id: `t${node.id}`, parent: `n${node.id}`, kind: 'title-spacer' },
+          position: { x: 0, y: -compoundHeight / 2 + NODE_TITLE_HEIGHT / 2 },
+          classes: 'cy-spacer',
+        });
+      }
 
       for (const prop of node.properties) {
         const propColor = prop.isLiteral()
@@ -180,10 +200,12 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
   /* ------------------------------------------------------------------ */
 
   private subscribeToGraphChanges(): void {
-    const fx = effect(() => {
-      this.graph.revision();
-      this.syncCytoscape();
-    });
+    const fx = runInInjectionContext(this.injector, () =>
+      effect(() => {
+        this.graph.revision();
+        this.syncCytoscape();
+      })
+    );
     this.destroyRef.onDestroy(() => fx.destroy());
   }
 
@@ -232,6 +254,7 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
       }
     });
 
+    this.cy.nodes('[kind = "property"], [kind = "literal"], [kind = "title-spacer"]').ungrabify();
     this.syncSelectionHighlight();
   }
 
@@ -367,7 +390,7 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
 
   private handleNewPropertyFromNode(node: Node): void {
     const newNode = this.graph.addNode();
-    newNode.x = node.x + NODE_BASE_HEIGHT * 10;
+    newNode.x = node.x + 360;
     newNode.y = node.y + 70;
     this.graph.addEdge(node, newNode);
   }
@@ -395,10 +418,24 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
     const zoom = this.cy.zoom();
     const container = this.host.nativeElement.querySelector('.cy-container') as HTMLElement;
     const rect = container.getBoundingClientRect();
-    const at = {
+    let at = {
       x: (ev.clientX - rect.left - pan.x) / zoom,
       y: (ev.clientY - rect.top - pan.y) / zoom,
     };
+
+    // If dropped on a compound node, select it and place the target node to its right
+    const nodeUnder = this.cy.nodes('[kind="node"]').filter(n => {
+      const bb = n.boundingBox({});
+      return at.x >= bb.x1 && at.x <= bb.x2 && at.y >= bb.y1 && at.y <= bb.y2;
+    }).first();
+
+    if (nodeUnder.nonempty()) {
+      const domain = nodeUnder.data('domain') as RDFResource | undefined;
+      if (domain) this.graph.setSelected(domain);
+      const bb = nodeUnder.boundingBox({});
+      at = { x: bb.x2 + 200, y: (bb.y1 + bb.y2) / 2 };
+    }
+
     this.graph.applyDrop(payload, at);
   }
 
