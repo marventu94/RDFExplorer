@@ -1,0 +1,40 @@
+.main-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr 400px;
+  grid-template-rows: 1fr;
+  grid-template-areas: "search canvas tools";
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.pane {
+  overflow: hidden;
+}
+
+.pane-search {
+  grid-area: search;
+  padding: 10px;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.pane-search > * {
+  pointer-events: auto;
+}
+
+.pane-canvas {
+  grid-area: canvas;
+  position: relative;
+}
+
+.pane-tools {
+  grid-area: tools;
+  padding: 10px;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.pane-tools > * {
+  pointer-events: auto;
+}

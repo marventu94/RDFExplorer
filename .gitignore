@@ -2,3 +2,6 @@ node_modules/
 public/components/
 public/.ignore
 survey-results/*.json
+app/node_modules/
+app/dist/
+app/.angular/
