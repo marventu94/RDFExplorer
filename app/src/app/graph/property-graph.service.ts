@@ -92,6 +92,10 @@ export class PropertyGraphService {
     this.revision.update(v => v + 1);
   }
 
+  refresh(): void {
+    this.bump();
+  }
+
   addNode(): Node {
     const node = this.graphRef.addNode();
     this.bump();
@@ -111,6 +115,16 @@ export class PropertyGraphService {
 
   setSelected(r: RDFResource | null): void {
     this.graphRef.setSelected(r);
+    this.bump();
+  }
+
+  removeNode(node: Node): void {
+    this.graphRef.removeNode(node);
+    this.bump();
+  }
+
+  removeEdge(edge: Edge): void {
+    this.graphRef.removeEdge(edge);
     this.bump();
   }
 

@@ -252,6 +252,20 @@ export class PropertyGraph implements GraphContext, VariableContext, LabelProvid
     return this.uriToNode.get(uri) ?? null;
   }
 
+  removeNode(node: Node): void {
+    node.delete();
+  }
+
+  removeEdge(edge: Edge): void {
+    const idx = this.edges.indexOf(edge);
+    if (idx >= 0) {
+      this.edges.splice(idx, 1);
+      if (this.selected === (edge as unknown as RDFResource)) {
+        this.selected = null;
+      }
+    }
+  }
+
   applyDrop(payload: DropPayload, at: { x: number; y: number }): void {
     switch (payload.kind) {
       case 'example':

@@ -1,0 +1,483 @@
+import {
+  Component,
+  ElementRef,
+  inject,
+  OnInit,
+  OnDestroy,
+  HostListener,
+  DestroyRef,
+} from '@angular/core';
+import { effect } from '@angular/core';
+import cytoscape from 'cytoscape';
+import edgehandles from 'cytoscape-edgehandles';
+import contextMenus from 'cytoscape-context-menus';
+
+import { PropertyGraphService } from '../property-graph.service';
+import { GraphInteractionService } from './interaction.service';
+import { CYTOSCAPE_STYLES, CHILD_HEIGHT, CHILD_PADDING, NODE_BASE_HEIGHT } from './canvas-graph.styles';
+import { parseDropPayload } from './canvas-graph.drop';
+import { buildContextMenuConfig } from './canvas-graph.context-menus';
+import type { Node, Property, Edge, RDFResource } from '../domain';
+
+cytoscape.use(edgehandles);
+cytoscape.use(contextMenus);
+
+/**
+ * `<canvas-graph>` is the cytoscape.js-based visual canvas for the property graph.
+ *
+ * Visual structure:
+ * - Each domain `Node` becomes a cytoscape compound (parent) node.
+ * - Each `Property` becomes a child node inside its parent Node.
+ * - Each `Literal` becomes a child node inside its parent Node, positioned
+ *   below its parent Property. Literals are rendered as separate child nodes
+ *   (not inline), matching the legacy SVG layout.
+ * - Each domain `Edge` becomes a cytoscape edge from the Property's node
+ *   to the target Node's compound node.
+ *
+ * This component owns ALL graph interactions (drag, drop, shift-click,
+ * context menus, keyboard shortcuts). It does NOT import any tool panel
+ * components. Tool routing is via `GraphInteractionService.requestedTool`.
+ */
+@Component({
+  selector: 'canvas-graph',
+  standalone: true,
+  templateUrl: './canvas-graph.component.html',
+  styleUrl: './canvas-graph.component.scss',
+})
+export class CanvasGraphComponent implements OnInit, OnDestroy {
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly graph = inject(PropertyGraphService);
+  private readonly interaction = inject(GraphInteractionService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  private cy!: cytoscape.Core;
+  private ehApi: ReturnType<typeof cytoscape.prototype.edgehandles> | null = null;
+  private cmApi: ReturnType<typeof cytoscape.prototype.contextMenus> | null = null;
+  private cyFocused = false;
+  private lastKeyDown = -1;
+
+  ngOnInit(): void {
+    const container = this.host.nativeElement.querySelector('.cy-container') as HTMLElement;
+    this.cy = cytoscape({
+      container,
+      elements: this.computeElements(),
+      style: CYTOSCAPE_STYLES,
+      layout: { name: 'preset' },
+      wheelSensitivity: 0.2,
+      autoungrabify: false,
+      autounselectify: false,
+    });
+
+    this.installPlugins();
+    this.installInteractions();
+    this.subscribeToGraphChanges();
+  }
+
+  ngOnDestroy(): void {
+    this.ehApi?.destroy?.();
+    this.cmApi?.destroy?.();
+    this.cy?.destroy();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Element conversion (domain → cytoscape)                            */
+  /* ------------------------------------------------------------------ */
+
+  private computeElements(): cytoscape.ElementDefinition[] {
+    const nodes = this.graph.nodes();
+    const edges = this.graph.edges();
+    const elements: cytoscape.ElementDefinition[] = [];
+
+    for (const node of nodes) {
+      const block = CHILD_HEIGHT + CHILD_PADDING;
+      const litCount = node.properties.filter(p => p.literal).length;
+      const compoundHeight = NODE_BASE_HEIGHT + node.properties.length * block + litCount * block;
+      const top = -compoundHeight / 2;
+      let childY = top + NODE_BASE_HEIGHT / 2 + block / 2;
+
+      elements.push({
+        group: 'nodes',
+        data: {
+          id: `n${node.id}`,
+          kind: 'node',
+          color: node.isVariable() ? '#2ca02c' : '#1f77b4',
+          label: this.nodeLabel(node),
+          compoundHeight,
+          domain: node,
+        },
+        position: { x: node.x, y: node.y },
+        classes: 'cy-node',
+      });
+
+      for (const prop of node.properties) {
+        const propColor = prop.isLiteral()
+          ? '#9467bd'
+          : prop.isVariable()
+            ? '#d62728'
+            : '#ff7f0e';
+
+        elements.push({
+          group: 'nodes',
+          data: {
+            id: `p${prop.id}`,
+            parent: `n${node.id}`,
+            kind: 'property',
+            color: propColor,
+            label: this.resourceLabel(prop),
+            domain: prop,
+          },
+          position: { x: 0, y: childY },
+          classes: 'cy-prop',
+        });
+        childY += block;
+
+        if (prop.literal) {
+          elements.push({
+            group: 'nodes',
+            data: {
+              id: `l${prop.id}`,
+              parent: `n${node.id}`,
+              kind: 'literal',
+              color: '#9467bd',
+              label: this.resourceLabel(prop.literal),
+              domain: prop.literal,
+            },
+            position: { x: 0, y: childY },
+            classes: 'cy-lit',
+          });
+          childY += block;
+        }
+      }
+    }
+
+    for (const edge of edges) {
+      elements.push({
+        group: 'edges',
+        data: {
+          id: `e${edge.source.id}-${edge.target.id}`,
+          source: `p${edge.source.id}`,
+          target: `n${edge.target.id}`,
+          kind: 'edge',
+          domain: edge,
+        },
+        classes: 'cy-edge',
+      });
+    }
+
+    return elements;
+  }
+
+  private nodeLabel(node: Node): string {
+    return node.getRepr() ?? 'No values set!';
+  }
+
+  private resourceLabel(r: RDFResource): string {
+    return (r as any).getRepr?.() ?? 'No values set!';
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Reactivity — diff-based cytoscape update                           */
+  /* ------------------------------------------------------------------ */
+
+  private subscribeToGraphChanges(): void {
+    const fx = effect(() => {
+      this.graph.revision();
+      this.syncCytoscape();
+    });
+    this.destroyRef.onDestroy(() => fx.destroy());
+  }
+
+  private syncCytoscape(): void {
+    const desired = this.computeElements();
+    const desiredIds = new Set<string>(desired.map(e => e.data.id as string));
+
+    this.cy.batch(() => {
+      const existing = this.cy.elements();
+      const toRemove = existing.filter(el => !desiredIds.has(el.id()));
+
+      toRemove.edges().remove();
+
+      const removeNodes = toRemove.nodes();
+      const children = removeNodes.filter(n => n.isChild());
+      const parents = removeNodes.filter(n => !n.isChild());
+      children.remove();
+      parents.remove();
+
+      for (const elDef of desired) {
+        const id = elDef.data.id as string;
+        const el = this.cy.getElementById(id);
+
+        if (el.nonempty() && el.length === 1) {
+          el.data(elDef.data as cytoscape.ElementDataDefinition);
+          if (el.isNode() && (elDef as any).position) {
+            el.position((elDef as any).position);
+          }
+        } else {
+          const isEdge = !!(elDef.data as any).source;
+          if (isEdge) {
+            this.cy.add({
+              group: 'edges',
+              data: elDef.data as cytoscape.EdgeDataDefinition,
+              classes: elDef.classes,
+            });
+          } else {
+            this.cy.add({
+              group: 'nodes',
+              data: elDef.data as cytoscape.NodeDataDefinition,
+              position: (elDef as any).position,
+              classes: elDef.classes,
+            });
+          }
+        }
+      }
+    });
+
+    this.syncSelectionHighlight();
+  }
+
+  private syncSelectionHighlight(): void {
+    const selected = this.graph.selected();
+    this.cy.elements().unselect();
+    if (!selected) return;
+
+    let cyId: string | null = null;
+    if ((selected as any).isNode?.()) {
+      cyId = `n${(selected as Node).id}`;
+    } else if ((selected as any).isProperty?.() && !(selected as any).isLiteral?.()) {
+      cyId = `p${(selected as Property).id}`;
+    } else if ((selected as any).isLiteral?.()) {
+      const lit = selected as unknown as { parent: { id: string | number } };
+      cyId = `l${lit.parent.id}`;
+    }
+
+    if (cyId) {
+      const el = this.cy.getElementById(cyId);
+      if (el.nonempty()) el.select();
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Plugins                                                            */
+  /* ------------------------------------------------------------------ */
+
+  private installPlugins(): void {
+    this.ehApi = (this.cy as any).edgehandles({
+      handleNodes: 'node[kind = "node"]',
+      handlePosition: 'bottom',
+      handleColor: '#ff7f0e',
+      handleSize: 12,
+      snap: false,
+      toggleOffOnLeave: true,
+      complete: (_sourceNode: cytoscape.NodeSingular, targetNode: cytoscape.NodeSingular) => {
+        const src = this.graph.selected();
+        if (src && (src as any).isNode?.()) {
+          const tgtDomain = targetNode.data('domain') as Node;
+          if (tgtDomain) {
+            this.graph.addEdge(src as Node, tgtDomain);
+          }
+        }
+      },
+    });
+
+    this.cmApi = (this.cy as any).contextMenus({
+      menuItems: buildContextMenuConfig({
+        onCreateNode: () => this.handleNewVariable(),
+        onCreateProperty: () => this.handleNewPropertyFromEmpty(),
+        onDescribe: (r: unknown) => this.requestTool('describe', r as RDFResource),
+        onEdit: (r: unknown) => this.requestTool('edit', r as RDFResource),
+        onCopyUri: (r: unknown) => this.copyUri(r as RDFResource),
+        onRemove: (r: unknown) => this.removeResource(r as RDFResource),
+        onNewPropertyFromNode: (r: unknown) => this.handleNewPropertyFromNode(r as Node),
+        onNewLiteral: (r: unknown) => this.handleNewLiteral(r as Node),
+      }).menuItems as any,
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Interaction handlers                                               */
+  /* ------------------------------------------------------------------ */
+
+  private installInteractions(): void {
+    this.cy.on('mouseover', () => { this.cyFocused = true; });
+    this.cy.on('mouseout', () => { this.cyFocused = false; });
+
+    this.cy.on('tap', (evt) => {
+      if (evt.target === this.cy && (evt.originalEvent as MouseEvent)?.shiftKey) {
+        this.handleShiftClickCanvas(evt.position);
+        return;
+      }
+
+      const target = evt.target;
+      if (target !== this.cy) {
+        const domain = target.data('domain') as RDFResource | undefined;
+        if (domain) {
+          this.graph.setSelected(domain);
+        }
+      }
+    });
+
+    this.cy.on('dragfree', 'node[kind = "node"]', (evt) => {
+      const domain = evt.target.data('domain') as Node;
+      if (domain) {
+        const pos = evt.target.position();
+        domain.x = pos.x;
+        domain.y = pos.y;
+      }
+    });
+
+    const container = this.host.nativeElement.querySelector('.cy-container') as HTMLElement;
+    container.addEventListener('dragover', (ev: DragEvent) => {
+      ev.preventDefault();
+    });
+    container.addEventListener('drop', (ev: DragEvent) => {
+      this.handleDrop(ev);
+    });
+
+    this.cy.on('cxttap', (evt) => {
+      const target = evt.target;
+      if (target !== this.cy) {
+        const domain = target.data('domain') as RDFResource | undefined;
+        if (domain) {
+          this.graph.setSelected(domain);
+        }
+      }
+    });
+  }
+
+  /* --- Context menu handlers --- */
+
+  private handleNewVariable(): void {
+    const pos = this.lastContextGraphPosition();
+    const node = this.graph.addNode();
+    node.x = pos.x;
+    node.y = pos.y;
+    node.mkVariable();
+    this.graph.setSelected(node);
+  }
+
+  private handleNewPropertyFromEmpty(): void {
+    const sel = this.graph.selected();
+    if (!sel || !(sel as any).isNode?.()) return;
+    const pos = this.lastContextGraphPosition();
+    const newNode = this.graph.addNode();
+    newNode.x = pos.x;
+    newNode.y = pos.y;
+    this.graph.addEdge(sel as Node, newNode);
+  }
+
+  private handleNewPropertyFromNode(node: Node): void {
+    const newNode = this.graph.addNode();
+    newNode.x = node.x + NODE_BASE_HEIGHT * 10;
+    newNode.y = node.y + 70;
+    this.graph.addEdge(node, newNode);
+  }
+
+  private handleNewLiteral(node: Node): void {
+    const prop = node.newProp();
+    prop.mkLiteral();
+    this.graph.setSelected(prop);
+  }
+
+  private handleShiftClickCanvas(position: cytoscape.Position): void {
+    const node = this.graph.addNode();
+    node.x = position.x;
+    node.y = position.y;
+    node.mkVariable();
+    this.graph.setSelected(node);
+  }
+
+  private handleDrop(ev: DragEvent): void {
+    ev.preventDefault();
+    const payload = parseDropPayload(ev.dataTransfer!);
+    if (!payload) return;
+
+    const pan = this.cy.pan();
+    const zoom = this.cy.zoom();
+    const container = this.host.nativeElement.querySelector('.cy-container') as HTMLElement;
+    const rect = container.getBoundingClientRect();
+    const at = {
+      x: (ev.clientX - rect.left - pan.x) / zoom,
+      y: (ev.clientY - rect.top - pan.y) / zoom,
+    };
+    this.graph.applyDrop(payload, at);
+  }
+
+  private lastContextGraphPosition(): { x: number; y: number } {
+    const pan = this.cy.pan();
+    const zoom = this.cy.zoom();
+    const extent = this.cy.extent();
+    const centerX = (extent.x1 + extent.x2) / 2;
+    const centerY = (extent.y1 + extent.y2) / 2;
+    return { x: (centerX - pan.x) / zoom, y: (centerY - pan.y) / zoom };
+  }
+
+  private requestTool(tool: 'describe' | 'edit', target: RDFResource): void {
+    this.interaction.requestedTool.set({ tool, target });
+  }
+
+  private async copyUri(resource: RDFResource): Promise<void> {
+    const uri = (resource as any).getUri?.() ?? null;
+    if (uri) {
+      try {
+        await navigator.clipboard.writeText(uri);
+      } catch {
+        const ta = document.createElement('textarea');
+        ta.value = uri;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    }
+  }
+
+  private removeResource(resource: RDFResource): void {
+    if ((resource as any).isNode?.()) {
+      this.graph.removeNode(resource as Node);
+    } else if ((resource as any).isProperty?.() && !(resource as any).isLiteral?.()) {
+      (resource as Property).delete();
+      this.graph.refresh();
+    } else if ((resource as any).isLiteral?.()) {
+      (resource as any).delete?.();
+      this.graph.refresh();
+    } else {
+      this.graph.removeEdge(resource as unknown as Edge);
+    }
+  }
+
+  /* --- Keyboard --- */
+
+  @HostListener('document:keydown', ['$event'])
+  onKeyDown(evt: KeyboardEvent): void {
+    if (!this.cyFocused) return;
+    if (this.lastKeyDown === evt.keyCode) return;
+    this.lastKeyDown = evt.keyCode;
+
+    if (evt.key === 'Delete' || evt.key === 'Backspace') {
+      evt.preventDefault();
+      this.handleDeleteKey();
+    }
+  }
+
+  @HostListener('document:keyup')
+  onKeyUp(): void {
+    this.lastKeyDown = -1;
+  }
+
+  private handleDeleteKey(): void {
+    const selected = this.graph.selected();
+    if (!selected) return;
+
+    if ((selected as any).isNode?.()) {
+      this.graph.removeNode(selected as Node);
+    } else if ((selected as any).isProperty?.() && !(selected as any).isLiteral?.()) {
+      (selected as Property).delete();
+      this.graph.refresh();
+    } else if ((selected as any).isLiteral?.()) {
+      (selected as any).delete?.();
+      this.graph.refresh();
+    } else {
+      this.graph.removeEdge(selected as unknown as Edge);
+    }
+  }
+}
