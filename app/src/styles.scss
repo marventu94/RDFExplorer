@@ -24,3 +24,19 @@ html, body {
 .clickable {
   cursor: pointer;
 }
+
+@keyframes simulate-drag {
+  0%   { opacity: 0; }
+  30%  { opacity: 1; }
+  80%  { opacity: 1; transform: translate(330px, 15px); }
+  100% { opacity: 0; transform: translate(330px, 15px); }
+}
+
+@keyframes simulate-drag2 {
+  0%   { opacity: 0; }
+  30%  { opacity: 1; }
+  80%  { opacity: 1; transform: translate(300px, -50px); }
+  100% { opacity: 0; transform: translate(300px, -50px); }
+}
+
+@import '@angular/cdk/overlay-prebuilt.css';

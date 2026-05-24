@@ -1,6 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { LogService } from '../../core/log.service';
 import { FAQ_ENTRIES } from './faq.data';
+import { TutorialService } from '../../tutorial/tutorial.service';
+import { GettingStartedDialogService } from '../../modal/getting-started-dialog.service';
 
 @Component({
   selector: 'app-help-panel',
@@ -10,6 +12,8 @@ import { FAQ_ENTRIES } from './faq.data';
 })
 export class HelpPanelComponent {
   readonly log = inject(LogService);
+  readonly tutorialService = inject(TutorialService);
+  readonly dialogService = inject(GettingStartedDialogService);
 
   faqEntries = FAQ_ENTRIES;
   expandedFaq: boolean[] = [];
@@ -28,10 +32,10 @@ export class HelpPanelComponent {
   }
 
   onTutorial(): void {
-    this.log.add('TODO: interactive tutorial (Stage 5)');
+    this.tutorialService.start();
   }
 
   onModalHelp(): void {
-    this.log.add('TODO: getting started modal (Stage 5)');
+    this.dialogService.open();
   }
 }

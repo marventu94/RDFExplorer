@@ -38,3 +38,29 @@
 .pane-tools > * {
   pointer-events: auto;
 }
+
+.overlay {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 3rem;
+  color: #b3b3b3;
+  text-align: center;
+  z-index: 5;
+  pointer-events: all;
+  line-height: 1.5;
+}
+
+.overlay-link {
+  font-size: 1.2rem;
+  color: #007bff;
+  cursor: pointer;
+  pointer-events: auto;
+  margin: 0 8px;
+  text-decoration: none;
+}
+
+.overlay-link:hover {
+  text-decoration: underline;
+}

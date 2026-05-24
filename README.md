@@ -1,31 +1,51 @@
 # RDFExplorer
-SPARQL visual query builder and RDF explorer
 
-## Installation
+SPARQL visual query builder and RDF explorer.
 
-Clone the repository, then:
+Angular 17+ standalone application with cytoscape.js graph visualisation, replacing the legacy AngularJS 1.6 + D3 v3 codebase. The legacy code lives under `legacy/` for reference and can be deleted once the migration is validated.
+
+## Local development
+
+```bash
+# Terminal 1: Angular dev server (port 4200, proxies /upload-survey to :8081)
+cd app && npm install && npm start
+
+# Terminal 2: Express backend (port 8081)
+cd server && npm install && npm start
 ```
-  > npm install
-  > npm start
+
+Open http://localhost:4200.
+
+## Production build
+
+```bash
+# Build the Angular SPA
+cd app && npm run build
+
+# Serve the built app + API
+cd server && npm install && npm start
 ```
 
-Master branch its configured to work with [wikidata](https://www.wikidata.org/wiki/Wikidata:Main_Page). Live demo: [RDFExplorer.org](https://rdfexplorer.org)
+Open http://localhost:8081. The Express server serves `app/dist/app/browser/` as static assets and handles `POST /upload-survey` (survey submissions) on port 8081. All SPA deep-links (e.g. `/survey`) resolve via the `*` fallback.
 
-DBpedia branch its configured to work with [dbpedia](http://dbpedia.org/sparql)
+## Custom endpoints
 
+The SPARQL endpoint is configurable from the **Settings** panel (click the gear icon in the toolbar). Supports Virtuoso, Fuseki, and generic SPARQL endpoints.
 
-## Custom configuration
+## Project structure
 
-Master branch is configured to work with [wikidata endpoint](https://query.wikidata.org),
-as they use an API to get labels this branch is configured with that custom behavior.
-If you want to check how to extend this project I suggest to look into this branch.
+```
+app/         Angular application (src/app/)
+server/      Express backend (port 8081, static + POST /upload-survey)
+legacy/      Original AngularJS 1.6 codebase (read-only, for reference)
+migration/   Stage-by-stage migration plan and status
+SPECS.md     Full feature specification
+license.txt  CC-BY-NC-SA 4.0
+```
 
-DBpedia branch is configured to work with any SPARQL endpoint, setted to the [dbpedia enpoint](http://dbpedia.org/sparql) in this branch.
-If you want to configure a new endpoint, I suggest using this branch as base.
+## Migration
 
-General config file: `RDFExplorer/public/scripts/services/settings.js`
-
-To change the query execution behavior check: `RDFExplorer/public/scripts/services/property-graph.js`
+The migration from AngularJS to Angular 17+ is complete. See `migration/README.md` for the full stage plan and decisions.
 
 ## License
 

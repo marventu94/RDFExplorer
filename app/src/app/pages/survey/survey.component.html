@@ -1,0 +1,73 @@
+<div class="container">
+  <div class="jumbotron" id="top">
+    <div class="row justify-content-center">
+      <div class="col-10">
+        <div class="page-header">
+          <div class="row">
+            <div class="col-5">
+              <h1>Survey</h1>
+            </div>
+            <div class="col-7">
+              <h4 class="subtitle-right">{{ subtitle() }}</h4>
+            </div>
+          </div>
+          <hr />
+        </div>
+
+        @switch (step()) {
+          @case (0) {
+            <app-consent-step
+              [startUrl]="data().startUrl"
+              (startUrlChange)="onStartUrlChange($event)"
+              (advance)="next()"
+            />
+          }
+          @case (1) {
+            <app-demographics-step
+              [gender]="data().user.gender"
+              (genderChange)="onGenderChange($event)"
+              [age]="data().user.age"
+              (ageChange)="onAgeChange($event)"
+              [degree]="data().user.degree"
+              (degreeChange)="onDegreeChange($event)"
+              (advance)="next()"
+            />
+          }
+          @case (2) {
+            <app-tasks-step
+              [taskIndex]="taskStep()"
+              [taskText]="taskTexts[taskStep()]"
+              [currentUrl]="urls()[urlStep()]"
+              [sparql]="data().tasks[taskStep()].sparql"
+              (sparqlChange)="onTaskSparqlChange($event)"
+              (advance)="next()"
+            />
+          }
+          @case (3) {
+            <app-tlx-step
+              [dimensions]="tlxDimensions"
+              [scores]="data().tlx[urlStep()].score"
+              (scoresChange)="onTlxScoresChange($event)"
+              [currentUrl]="urls()[urlStep()]"
+              (advance)="next()"
+            />
+          }
+          @case (4) {
+            <app-likert-step
+              [prompts]="likertPrompts"
+              [scores]="data().likert[urlStep()].score"
+              (scoresChange)="onLikertScoresChange($event)"
+              [currentUrl]="urls()[urlStep()]"
+              (advance)="next()"
+            />
+          }
+          @case (5) {
+            <app-completed-step
+              (download)="downloadData()"
+            />
+          }
+        }
+      </div>
+    </div>
+  </div>
+</div>

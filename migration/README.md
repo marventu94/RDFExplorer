@@ -18,8 +18,9 @@ Read [`../SPECS.md`](../SPECS.md) first for the full feature inventory. Each sta
 | Backend          | Express kept minimal (static `app/dist/` + `POST /upload-survey`). Everything else moves to the SPA. |
 | HTTP             | Native `fetch` + `AbortController`. No `$http`/`$q`. |
 | State management | Angular signals. **Do not** add NgRx, RxJS `BehaviorSubject`, or services-as-state. |
-| Modal/UI         | Angular CDK + Angular Material *or* PrimeNG — agent decides, **be consistent across stages**. |
+| Modal/UI         | Angular CDK (Dialog). Used for the Getting Started modal in Stage 5. |
 | Styling          | SCSS modules / component-scoped styles. Keep the legacy color palette (see SPECS section 7). |
+| Tutorial lib     | **Shepherd.js** v15. Chosen in Stage 5. IntroJS steps ported as 16-step Shepherd tour with `when.show` hooks for simulated typing (step 2) and drag animations (steps 4, 8). |
 
 ---
 
@@ -41,12 +42,12 @@ Stage 5 (polish) can technically be done in parallel with stages 1–4 because t
 
 | #  | Stage                                  | File                                                       | Spec sections    | Status |
 |----|----------------------------------------|------------------------------------------------------------|------------------|--------|
-| 0  | Bootstrap Angular + layout shell       | [`stage-0-bootstrap.md`](stage-0-bootstrap.md)             | 1, 2, 11, 17     | ☐      |
-| 1  | Core services (settings/req/query/log) | [`stage-1-services.md`](stage-1-services.md)               | 3, 4, 5, 6       | ☐      |
-| 2  | Property graph domain model            | [`stage-2-property-graph.md`](stage-2-property-graph.md)   | 7                | ☐      |
-| 3  | Visual canvas (cytoscape.js)           | [`stage-3-canvas.md`](stage-3-canvas.md)                   | 8, 17 (partial)  | ☐      |
-| 4  | Tools panel (search/describe/edit/sparql/settings/help/log) | [`stage-4-tools.md`](stage-4-tools.md) | 9, 10, 11, 12, 13, 14, 3 (UI), 6 (UI), 15 (panel) | ☐ |
-| 5  | Polish: survey, modal help, tutorial   | [`stage-5-polish.md`](stage-5-polish.md)                   | 1 (final), 15 (modal), 16 | ☐ |
+| 0  | Bootstrap Angular + layout shell       | [`stage-0-bootstrap.md`](stage-0-bootstrap.md)             | 1, 2, 11, 17     | ☑      |
+| 1  | Core services (settings/req/query/log) | [`stage-1-services.md`](stage-1-services.md)               | 3, 4, 5, 6       | ☑      |
+| 2  | Property graph domain model            | [`stage-2-property-graph.md`](stage-2-property-graph.md)   | 7                | ☑      |
+| 3  | Visual canvas (cytoscape.js)           | [`stage-3-canvas.md`](stage-3-canvas.md)                   | 8, 17 (partial)  | ☑      |
+| 4  | Tools panel (search/describe/edit/sparql/settings/help/log) | [`stage-4-tools.md`](stage-4-tools.md) | 9, 10, 11, 12, 13, 14, 3 (UI), 6 (UI), 15 (panel) | ☑ |
+| 5  | Polish: survey, modal help, tutorial   | [`stage-5-polish.md`](stage-5-polish.md)                   | 1 (final), 15 (modal), 16 | ☑ |
 
 Update the **Status** column as stages complete.
 
