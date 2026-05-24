@@ -15,7 +15,6 @@ export type CyContextMenuConfig = {
 
 export interface ContextMenuCallbacks {
   onCreateNode: () => void;
-  onCreateProperty: () => void;
   onDescribe: (resource: unknown) => void;
   onEdit: (resource: unknown) => void;
   onCopyUri: (resource: unknown) => void;
@@ -35,14 +34,6 @@ export function buildContextMenuConfig(
         selector: 'core',
         onClickFunction: () => {
           callbacks.onCreateNode();
-        },
-      },
-      {
-        id: 'new-prop-core',
-        content: 'New property',
-        selector: 'core',
-        onClickFunction: () => {
-          callbacks.onCreateProperty();
         },
       },
       {

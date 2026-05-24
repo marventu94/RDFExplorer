@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, computed } from '@angular/core';
 import { PropertyGraphService } from '../../graph/property-graph.service';
 import { SparqlViewerComponent } from './sparql-viewer/sparql-viewer.component';
 import type { Query, RDFResource } from '../../graph/domain';
@@ -14,16 +14,14 @@ import { Property } from '../../graph/domain';
 export class SparqlPanelComponent {
   private readonly graph = inject(PropertyGraphService);
 
-  queries = signal<Query[]>([]);
-  emptyVars = signal<RDFResource[]>([]);
-  queryShow: boolean[] = [];
+  private readonly queriesResult = computed(() => {
+    void this.graph.revision();
+    return this.graph.getQueriesForGraph();
+  });
 
-  updateQueries(): void {
-    const result = this.graph.getQueriesForGraph();
-    this.queries.set(result.queries);
-    this.emptyVars.set(result.emptyVars);
-    this.queryShow = result.queries.map((_, i) => this.queryShow[i] ?? true);
-  }
+  readonly queries = computed(() => this.queriesResult().queries);
+  readonly emptyVars = computed(() => this.queriesResult().emptyVars);
+  queryShow: boolean[] = [];
 
   toggleQuery(index: number): void {
     this.queryShow[index] = !(this.queryShow[index] ?? true);

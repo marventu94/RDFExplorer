@@ -342,7 +342,6 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
     this.cmApi = (this.cy as any).contextMenus({
       menuItems: buildContextMenuConfig({
         onCreateNode: () => this.handleNewVariable(),
-        onCreateProperty: () => this.handleNewPropertyFromEmpty(),
         onDescribe: (r: unknown) => this.requestTool('describe', r as RDFResource),
         onEdit: (r: unknown) => this.requestTool('edit', r as RDFResource),
         onCopyUri: (r: unknown) => this.copyUri(r as RDFResource),
@@ -372,6 +371,9 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
         const domain = target.data('domain') as RDFResource | undefined;
         if (domain) {
           this.graph.setSelected(domain);
+          if (domain.isVariable()) {
+            this.requestTool('edit', domain);
+          }
         }
       }
     });

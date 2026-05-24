@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, effect } from '@angular/core';
+import { Component, computed, inject, NgZone, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { PropertyGraphService } from '../../graph/property-graph.service';
 import { RequestService } from '../../core/request.service';
@@ -27,6 +27,7 @@ interface ExistingFilter {
 export class EditPanelComponent {
   readonly graph = inject(PropertyGraphService);
   private readonly request = inject(RequestService);
+  private readonly ngZone = inject(NgZone);
 
   readonly selected = computed(() => this.graph.selected());
 
@@ -42,7 +43,6 @@ export class EditPanelComponent {
   resultFilterLoading = false;
   private previewAbort: AbortController | null = null;
   private previewTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastValueSearch = '';
 
   added = 0;
   newFilterType: FilterType | '' = '';
@@ -52,11 +52,21 @@ export class EditPanelComponent {
   newFilterFields: FilterField[] = [];
   existingFilters: ExistingFilter[] = [];
 
+  private lastSelected: RDFResource | null = null;
+
   constructor() {
     effect(() => {
+      this.graph.revision();
       const sel = this.selected();
-      if (sel) {
+      if (!sel) {
+        this.lastSelected = null;
+        return;
+      }
+      if (sel !== this.lastSelected) {
+        this.lastSelected = sel;
         this.editResource(sel);
+      } else if (sel.isVariable()) {
+        this.loadPreview();
       }
     });
   }
@@ -262,17 +272,16 @@ export class EditPanelComponent {
       limit: 10,
       canceller: this.previewAbort.signal,
       callback: () => {
-        this.resultFilterLoading = false;
-        this.previewAbort = null;
+        this.ngZone.run(() => {
+          this.resultFilterLoading = false;
+          this.previewAbort = null;
+        });
       },
     };
 
     const now = this.resultFilterValue + '';
-    if (now && now !== this.lastValueSearch) {
-      this.lastValueSearch = now;
+    if (now) {
       config['varFilter'] = now;
-    } else if (!now) {
-      this.lastValueSearch = '';
     }
 
     const selNode = sel as unknown as { loadPreview?: (c: Record<string, unknown>) => void };
