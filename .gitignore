@@ -1,7 +1,8 @@
 node_modules/
 public/components/
 public/.ignore
-survey-results/*.json
+**/survey-results/*.json
+migration/logs/
 app/node_modules/
 app/dist/
 app/.angular/
