@@ -58,6 +58,8 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
   private cmApi: ReturnType<typeof cytoscape.prototype.contextMenus> | null = null;
   private cyFocused = false;
   private lastKeyDown = -1;
+  private lastContextMenuPosition: cytoscape.Position = { x: 0, y: 0 };
+  drawMode = false;
 
   ngOnInit(): void {
     const container = this.host.nativeElement.querySelector('.cy-container') as HTMLElement;
@@ -231,8 +233,24 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
 
         if (el.nonempty() && el.length === 1) {
           el.data(elDef.data as cytoscape.ElementDataDefinition);
-          if (el.isNode() && (elDef as any).position) {
-            el.position((elDef as any).position);
+          // Child positions in computeElements are relative to parent center.
+          // After init, el.position() uses absolute coords — so we must convert.
+          // We must also re-apply on every sync because adding/removing siblings
+          // changes compoundHeight and therefore every child's relative offset.
+          // Parent nodes (kind="node") are NOT repositioned here — dragfree keeps
+          // domain.x/y in sync with Cytoscape so there is nothing to correct.
+          if (el.isNode() && el.isChild()) {
+            const parentId = (elDef.data as any).parent as string | undefined;
+            if (parentId) {
+              const parentEl = this.cy.getElementById(parentId);
+              const parentDomain = parentEl.nonempty()
+                ? (parentEl.data('domain') as Node | undefined)
+                : undefined;
+              if (parentDomain && (elDef as any).position) {
+                const rel: cytoscape.Position = (elDef as any).position;
+                el.position({ x: parentDomain.x + rel.x, y: parentDomain.y + rel.y });
+              }
+            }
           }
         } else {
           const isEdge = !!(elDef.data as any).source;
@@ -243,10 +261,25 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
               classes: elDef.classes,
             });
           } else {
+            const nodeData = elDef.data as cytoscape.NodeDataDefinition;
+            let pos: cytoscape.Position = (elDef as any).position ?? { x: 0, y: 0 };
+            const parentId = nodeData.parent as string | undefined;
+            if (parentId) {
+              // computeElements gives children relative positions {x:0, y:childY}.
+              // cy.add() requires absolute graph coords, so add the parent's
+              // domain-stored center (updated on every drag via dragfree).
+              const parentEl = this.cy.getElementById(parentId);
+              const parentDomain = parentEl.nonempty()
+                ? (parentEl.data('domain') as Node | undefined)
+                : undefined;
+              if (parentDomain) {
+                pos = { x: parentDomain.x + pos.x, y: parentDomain.y + pos.y };
+              }
+            }
             this.cy.add({
               group: 'nodes',
-              data: elDef.data as cytoscape.NodeDataDefinition,
-              position: (elDef as any).position,
+              data: nodeData,
+              position: pos,
               classes: elDef.classes,
             });
           }
@@ -284,22 +317,26 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
   /* ------------------------------------------------------------------ */
 
   private installPlugins(): void {
+    // cytoscape-edgehandles v4: no hover handle — draw mode makes the whole
+    // node body the handle. Options handleNodes/handlePosition/complete are v3
+    // only and are ignored in v4; edge creation is now an event (ehcomplete).
     this.ehApi = (this.cy as any).edgehandles({
-      handleNodes: 'node[kind = "node"]',
-      handlePosition: 'bottom',
-      handleColor: '#ff7f0e',
-      handleSize: 12,
+      canConnect: (sourceNode: cytoscape.NodeSingular, targetNode: cytoscape.NodeSingular) =>
+        sourceNode.data('kind') === 'node'
+        && targetNode.data('kind') === 'node'
+        && !sourceNode.same(targetNode),
       snap: false,
-      toggleOffOnLeave: true,
-      complete: (_sourceNode: cytoscape.NodeSingular, targetNode: cytoscape.NodeSingular) => {
-        const src = this.graph.selected();
-        if (src && (src as any).isNode?.()) {
-          const tgtDomain = targetNode.data('domain') as Node;
-          if (tgtDomain) {
-            this.graph.addEdge(src as Node, tgtDomain);
-          }
-        }
-      },
+      hoverDelay: 150,
+      noEdgeEventsInDraw: true,
+      disableBrowserGestures: true,
+    });
+
+    this.cy.on('ehcomplete', (_evt: unknown, sourceNode: cytoscape.NodeSingular, targetNode: cytoscape.NodeSingular) => {
+      const srcDomain = sourceNode.data('domain') as Node | undefined;
+      const tgtDomain = targetNode.data('domain') as Node | undefined;
+      if (srcDomain && tgtDomain) {
+        this.graph.addEdge(srcDomain, tgtDomain);
+      }
     });
 
     this.cmApi = (this.cy as any).contextMenus({
@@ -357,6 +394,9 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
     });
 
     this.cy.on('cxttap', (evt) => {
+      if (evt.target === this.cy) {
+        this.lastContextMenuPosition = evt.position;
+      }
       const target = evt.target;
       if (target !== this.cy) {
         const domain = target.data('domain') as RDFResource | undefined;
@@ -440,12 +480,7 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
   }
 
   private lastContextGraphPosition(): { x: number; y: number } {
-    const pan = this.cy.pan();
-    const zoom = this.cy.zoom();
-    const extent = this.cy.extent();
-    const centerX = (extent.x1 + extent.x2) / 2;
-    const centerY = (extent.y1 + extent.y2) / 2;
-    return { x: (centerX - pan.x) / zoom, y: (centerY - pan.y) / zoom };
+    return { ...this.lastContextMenuPosition };
   }
 
   private requestTool(tool: 'describe' | 'edit', target: RDFResource): void {
@@ -484,11 +519,26 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
 
   /* --- Keyboard --- */
 
+  setDrawMode(enabled: boolean): void {
+    if (!this.ehApi) return;
+    if (enabled) {
+      (this.ehApi as any).enableDrawMode();
+    } else {
+      (this.ehApi as any).disableDrawMode();
+    }
+    this.drawMode = enabled;
+  }
+
   @HostListener('document:keydown', ['$event'])
   onKeyDown(evt: KeyboardEvent): void {
     if (!this.cyFocused) return;
     if (this.lastKeyDown === evt.keyCode) return;
     this.lastKeyDown = evt.keyCode;
+
+    if (evt.key === 'Control') {
+      this.setDrawMode(true);
+      return;
+    }
 
     if (evt.key === 'Delete' || evt.key === 'Backspace') {
       evt.preventDefault();
@@ -496,9 +546,12 @@ export class CanvasGraphComponent implements OnInit, OnDestroy {
     }
   }
 
-  @HostListener('document:keyup')
-  onKeyUp(): void {
+  @HostListener('document:keyup', ['$event'])
+  onKeyUp(evt: KeyboardEvent): void {
     this.lastKeyDown = -1;
+    if (evt.key === 'Control') {
+      this.setDrawMode(false);
+    }
   }
 
   private handleDeleteKey(): void {
